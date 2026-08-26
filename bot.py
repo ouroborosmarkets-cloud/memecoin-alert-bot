@@ -3,6 +3,8 @@ Crypto Alert Bot — sends Telegram notifications for:
   1. Price spikes/drops (% change over a rolling window)
   2. Volume breakouts (current volume vs recent average)
   3. Crypto news matching your keywords (via RSS)
+  4. OTE + STDV swing setups (Fibonacci retracement entries filtered
+     by volatility — see strategy.py)
 
 No trading, no keys to an exchange account needed — this ONLY reads
 public market data and sends you alerts. Nothing is executed on your behalf.
@@ -15,6 +17,8 @@ import logging
 import requests
 import feedparser
 from datetime import datetime
+
+from strategy import detect_ote_signal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("alert-bot")
@@ -38,13 +42,24 @@ NEWS_RSS_FEEDS = [
 ]
 NEWS_CHECK_INTERVAL_SECONDS = int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "600"))
 
+OTE_ENABLED = os.getenv("OTE_ENABLED", "true").lower() == "true"
+OTE_TIMEFRAME = os.getenv("OTE_TIMEFRAME", "15m")
+OTE_CANDLE_LIMIT = int(os.getenv("OTE_CANDLE_LIMIT", "100"))
+OTE_PIVOT_STRENGTH = int(os.getenv("OTE_PIVOT_STRENGTH", "3"))
+OTE_STD_WINDOW = int(os.getenv("OTE_STD_WINDOW", "20"))
+OTE_MIN_STD_MULTIPLE = float(os.getenv("OTE_MIN_STD_MULTIPLE", "1.5"))
+OTE_CHECK_INTERVAL_SECONDS = int(os.getenv("OTE_CHECK_INTERVAL_SECONDS", "900"))
+OTE_ALERT_COOLDOWN_SECONDS = int(os.getenv("OTE_ALERT_COOLDOWN_SECONDS", "3600"))
+
 STATE_FILE = "state.json"
 
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    return {"seen_news": [], "price_history": {}}
+            state = json.load(f)
+            state.setdefault("ote_alerts", {})
+            return state
+    return {"seen_news": [], "price_history": {}, "ote_alerts": {}}
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
@@ -72,6 +87,19 @@ def get_ticker_data(symbol: str):
     resp = requests.get(url, params={"symbol": symbol}, timeout=10)
     resp.raise_for_status()
     return resp.json()
+
+def get_candles(symbol: str, interval: str, limit: int):
+    url = "https://api.binance.com/api/v3/klines"
+    resp = requests.get(
+        url,
+        params={"symbol": symbol, "interval": interval, "limit": limit},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return [
+        {"high": float(k[2]), "low": float(k[3]), "close": float(k[4])}
+        for k in resp.json()
+    ]
 
 def check_price_and_volume(state):
     now = time.time()
@@ -118,6 +146,45 @@ def check_price_and_volume(state):
 
     save_state(state)
 
+def check_ote_strategy(state):
+    now = time.time()
+    for symbol in WATCH_SYMBOLS:
+        symbol = symbol.strip()
+        last_alert = state["ote_alerts"].get(symbol, 0)
+        if now - last_alert < OTE_ALERT_COOLDOWN_SECONDS:
+            continue
+
+        try:
+            candles = get_candles(symbol, OTE_TIMEFRAME, OTE_CANDLE_LIMIT)
+        except Exception as e:
+            log.error("Failed to fetch candles for %s: %s", symbol, e)
+            continue
+
+        signal = detect_ote_signal(
+            symbol,
+            candles,
+            pivot_strength=OTE_PIVOT_STRENGTH,
+            std_window=OTE_STD_WINDOW,
+            min_std_multiple=OTE_MIN_STD_MULTIPLE,
+        )
+        if signal is None:
+            continue
+
+        arrow = "🟢 LONG" if signal.direction == "long" else "🔴 SHORT"
+        send_telegram(
+            f"*🎯 OTE SETUP: {symbol}* ({OTE_TIMEFRAME}) {arrow}\n"
+            f"Price: ${signal.price:,.6f}\n"
+            f"OTE zone: ${signal.zone_low:,.6f} – ${signal.zone_high:,.6f}\n"
+            f"Swing: ${signal.swing_low:,.6f} – ${signal.swing_high:,.6f}\n"
+            f"Stdev: ${signal.stdev:,.6f}\n"
+            f"Stop: ${signal.stop:,.6f}\n"
+            f"Targets: ${signal.target_1:,.6f} / ${signal.target_2:,.6f}\n"
+            f"_Signal only — no order was placed._"
+        )
+        state["ote_alerts"][symbol] = now
+
+    save_state(state)
+
 def check_news(state):
     for feed_url in NEWS_RSS_FEEDS:
         try:
@@ -147,6 +214,7 @@ def main():
 
     state = load_state()
     last_news_check = 0
+    last_ote_check = 0
 
     while True:
         try:
@@ -154,6 +222,9 @@ def main():
             if time.time() - last_news_check >= NEWS_CHECK_INTERVAL_SECONDS:
                 check_news(state)
                 last_news_check = time.time()
+            if OTE_ENABLED and time.time() - last_ote_check >= OTE_CHECK_INTERVAL_SECONDS:
+                check_ote_strategy(state)
+                last_ote_check = time.time()
         except Exception as e:
             log.error("Loop error: %s", e)
         time.sleep(CHECK_INTERVAL_SECONDS)
