@@ -19,6 +19,7 @@ import feedparser
 from datetime import datetime
 
 from strategy import detect_ote_signal
+from risk_manager import RiskManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("alert-bot")
@@ -50,6 +51,11 @@ OTE_STD_WINDOW = int(os.getenv("OTE_STD_WINDOW", "20"))
 OTE_MIN_STD_MULTIPLE = float(os.getenv("OTE_MIN_STD_MULTIPLE", "1.5"))
 OTE_CHECK_INTERVAL_SECONDS = int(os.getenv("OTE_CHECK_INTERVAL_SECONDS", "900"))
 OTE_ALERT_COOLDOWN_SECONDS = int(os.getenv("OTE_ALERT_COOLDOWN_SECONDS", "3600"))
+
+# Placeholder until the bot has a live broker connection to read real
+# balance from. Set this to your actual account equity if you want the
+# alerts to include a sized suggestion; 0 disables sizing (setup-only alerts).
+ACCOUNT_EQUITY_USD = float(os.getenv("ACCOUNT_EQUITY_USD", "0"))
 
 STATE_FILE = "state.json"
 
@@ -148,6 +154,7 @@ def check_price_and_volume(state):
 
 def check_ote_strategy(state):
     now = time.time()
+    risk_manager = RiskManager(state)
     for symbol in WATCH_SYMBOLS:
         symbol = symbol.strip()
         last_alert = state["ote_alerts"].get(symbol, 0)
@@ -171,7 +178,7 @@ def check_ote_strategy(state):
             continue
 
         arrow = "🟢 LONG" if signal.direction == "long" else "🔴 SHORT"
-        send_telegram(
+        message = (
             f"*🎯 OTE SETUP: {symbol}* ({OTE_TIMEFRAME}) {arrow}\n"
             f"Price: ${signal.price:,.6f}\n"
             f"OTE zone: ${signal.zone_low:,.6f} – ${signal.zone_high:,.6f}\n"
@@ -179,8 +186,20 @@ def check_ote_strategy(state):
             f"Stdev: ${signal.stdev:,.6f}\n"
             f"Stop: ${signal.stop:,.6f}\n"
             f"Targets: ${signal.target_1:,.6f} / ${signal.target_2:,.6f}\n"
-            f"_Signal only — no order was placed._"
         )
+
+        if ACCOUNT_EQUITY_USD > 0:
+            decision = risk_manager.evaluate(signal, ACCOUNT_EQUITY_USD)
+            if decision.approved:
+                message += (
+                    f"Risk gate: ✅ approved — size {decision.position_size:,.4f} "
+                    f"units (risking ${decision.risk_amount:,.2f})\n"
+                )
+            else:
+                message += f"Risk gate: ⛔ rejected — {decision.reason}\n"
+
+        message += "_Signal only — no order was placed._"
+        send_telegram(message)
         state["ote_alerts"][symbol] = now
 
     save_state(state)
