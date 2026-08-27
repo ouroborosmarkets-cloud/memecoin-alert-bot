@@ -208,6 +208,7 @@ def simulate(
     slippage_pct: float,
     min_rr_to_tp1: float = MIN_RR_TO_TP1,
     no_chase_stdv_mult: float = 1.0,
+    displacement_atr_mult: float = DISPLACEMENT_ATR_MULT,
 ):
     from risk_manager import RiskManager
 
@@ -282,7 +283,7 @@ def simulate(
             if a is None:
                 continue
             rng = setup_candles[d].high - setup_candles[d].low
-            if rng < DISPLACEMENT_ATR_MULT * a:
+            if rng < displacement_atr_mult * a:
                 continue
             c1, c3 = setup_candles[d - 1], setup_candles[d + 1]
             if bias == "long" and c1.high < c3.low:

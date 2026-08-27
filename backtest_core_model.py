@@ -26,9 +26,9 @@ def fetch(symbol: str, source: str, tf: str, days: int) -> list:
 
 
 def run_one(symbol: str, source: str, setup_tf: str, htf_tf: str, days: int, equity: float,
-            min_rr: float, no_chase_mult: float):
+            min_rr: float, no_chase_mult: float, disp_mult: float):
     print(f"=== Core Model Backtest: {symbol} ({source}, setup={setup_tf}, HTF={htf_tf}, {days}d, "
-          f"min_rr={min_rr}, no_chase_mult={no_chase_mult}) ===\n")
+          f"min_rr={min_rr}, no_chase_mult={no_chase_mult}, disp_mult={disp_mult}) ===\n")
 
     print(f"Fetching setup candles...")
     setup_raw = fetch(symbol, source, setup_tf, days)
@@ -46,7 +46,7 @@ def run_one(symbol: str, source: str, setup_tf: str, htf_tf: str, days: int, equ
     fee_pct = FEE_PCT if source == "crypto" else EQUITY_FEE_PCT
     trades, ending_equity = simulate(
         symbol, setup_candles, htf_candles, setup_tf, htf_tf,
-        equity, fee_pct, SLIPPAGE_PCT, min_rr, no_chase_mult,
+        equity, fee_pct, SLIPPAGE_PCT, min_rr, no_chase_mult, disp_mult,
     )
     summarize(trades, equity, ending_equity)
     print()
@@ -65,15 +65,24 @@ def main():
     parser.add_argument("--min-rr", type=float, default=2.0, help="R:R gate to TP1 (spec default 2.0)")
     parser.add_argument("--no-chase-mult", type=float, default=1.0,
                          help="STDV multiple for the no-chase cancel rule (spec default 1.0)")
+    parser.add_argument("--disp-mult", type=float, default=1.5,
+                         help="Displacement ATR multiplier (spec default 1.5)")
     args = parser.parse_args()
 
     default_days = 90 if args.source == "crypto" else 60
     days = args.days or default_days
 
     symbols = args.symbols.split(",") if args.symbols else [args.symbol or "DOGEUSDT"]
+    all_trades = []
     for sym in symbols:
-        run_one(sym.strip(), args.source, args.setup_tf, args.htf, days, args.equity,
-                args.min_rr, args.no_chase_mult)
+        trades, _ = run_one(sym.strip(), args.source, args.setup_tf, args.htf, days, args.equity,
+                             args.min_rr, args.no_chase_mult, args.disp_mult)
+        all_trades.extend(trades)
+
+    if len(symbols) > 1:
+        print(f"=== Pooled across {len(symbols)} symbols ===\n")
+        pooled_ending = args.equity + sum(t["pnl"] for t in all_trades)
+        summarize(all_trades, args.equity, pooled_ending)
 
 
 if __name__ == "__main__":
