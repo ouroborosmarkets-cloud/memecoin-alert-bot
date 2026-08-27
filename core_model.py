@@ -206,6 +206,8 @@ def simulate(
     starting_equity: float,
     fee_pct: float,
     slippage_pct: float,
+    min_rr_to_tp1: float = MIN_RR_TO_TP1,
+    no_chase_stdv_mult: float = 1.0,
 ):
     from risk_manager import RiskManager
 
@@ -370,7 +372,7 @@ def simulate(
             touched_zone = (bar.low <= zone_high) if bias == "long" else (bar.high >= zone_high)
             if touched_zone:
                 entered_zone = True
-            reached_t1 = (bar.high >= stdv_target(1.0)) if bias == "long" else (bar.low <= stdv_target(1.0))
+            reached_t1 = (bar.high >= stdv_target(no_chase_stdv_mult)) if bias == "long" else (bar.low <= stdv_target(no_chase_stdv_mult))
             if reached_t1 and not entered_zone:
                 cancel = True
                 break
@@ -395,7 +397,7 @@ def simulate(
         stop = a_far - buf if bias == "long" else a_far + buf
         risk_per_unit = abs(entry_price_raw - stop)
         reward_to_tp1 = abs(tp1 - entry_price_raw)
-        if risk_per_unit <= 0 or reward_to_tp1 / risk_per_unit < MIN_RR_TO_TP1:
+        if risk_per_unit <= 0 or reward_to_tp1 / risk_per_unit < min_rr_to_tp1:
             i = fill_index + 1
             continue
 
