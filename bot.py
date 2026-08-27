@@ -89,13 +89,13 @@ def send_telegram(message: str):
         log.error("Telegram send error: %s", e)
 
 def get_ticker_data(symbol: str):
-    url = "https://api.binance.com/api/v3/ticker/24hr"
+    url = "https://api.binance.us/api/v3/ticker/24hr"
     resp = requests.get(url, params={"symbol": symbol}, timeout=10)
     resp.raise_for_status()
     return resp.json()
 
 def get_candles(symbol: str, interval: str, limit: int):
-    url = "https://api.binance.com/api/v3/klines"
+    url = "https://api.binance.us/api/v3/klines"
     resp = requests.get(
         url,
         params={"symbol": symbol, "interval": interval, "limit": limit},
