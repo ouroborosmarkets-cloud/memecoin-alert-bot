@@ -46,15 +46,16 @@ class RiskManager:
             {"open_positions": {}, "daily_pnl": 0.0, "daily_pnl_date": None},
         )
 
-    def _roll_day(self):
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    def _roll_day(self, now_dt: Optional[datetime] = None):
+        now_dt = now_dt or datetime.now(timezone.utc)
+        today = now_dt.strftime("%Y-%m-%d")
         risk = self.state["risk"]
         if risk["daily_pnl_date"] != today:
             risk["daily_pnl_date"] = today
             risk["daily_pnl"] = 0.0
 
-    def record_fill_pnl(self, realized_pnl: float):
-        self._roll_day()
+    def record_fill_pnl(self, realized_pnl: float, now_dt: Optional[datetime] = None):
+        self._roll_day(now_dt)
         self.state["risk"]["daily_pnl"] += realized_pnl
 
     def open_position(self, symbol: str, entry: float, stop: float, size: float):
@@ -65,8 +66,8 @@ class RiskManager:
     def close_position(self, symbol: str):
         self.state["risk"]["open_positions"].pop(symbol, None)
 
-    def evaluate(self, signal, account_equity: float) -> TradeDecision:
-        self._roll_day()
+    def evaluate(self, signal, account_equity: float, now_dt: Optional[datetime] = None) -> TradeDecision:
+        self._roll_day(now_dt)
         risk = self.state["risk"]
 
         if signal.stop is None:
