@@ -67,6 +67,7 @@ def detect_ote_signal(
     pivot_strength: int = 3,
     std_window: int = 20,
     min_std_multiple: float = 1.5,
+    target_multiple: float = 1.0,
 ) -> Optional[OTESignal]:
     if len(candles) < std_window + pivot_strength * 2 + 1:
         return None
@@ -96,16 +97,16 @@ def detect_ote_signal(
         zone_low = high - OTE_HIGH * swing_range
         zone_high = high - OTE_LOW * swing_range
         stop = low - 0.25 * stdev
-        target_1 = price + stdev
-        target_2 = price + 2 * stdev
+        target_1 = price + target_multiple * stdev
+        target_2 = price + 2 * target_multiple * stdev
     else:
         # high -> low impulse: bearish leg, look for a short on the retrace up
         direction = "short"
         zone_low = low + OTE_LOW * swing_range
         zone_high = low + OTE_HIGH * swing_range
         stop = high + 0.25 * stdev
-        target_1 = price - stdev
-        target_2 = price - 2 * stdev
+        target_1 = price - target_multiple * stdev
+        target_2 = price - 2 * target_multiple * stdev
 
     if not (zone_low <= price <= zone_high):
         return None

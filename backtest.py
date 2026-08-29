@@ -88,6 +88,7 @@ def simulate(
     pivot_strength: int = 3,
     std_window: int = 20,
     min_std_multiple: float = 1.5,
+    target_multiple: float = 1.0,
 ):
     trades: List[Trade] = []
     state: dict = {}
@@ -101,6 +102,7 @@ def simulate(
         signal = detect_ote_signal(
             symbol, window, pivot_strength=pivot_strength,
             std_window=std_window, min_std_multiple=min_std_multiple,
+            target_multiple=target_multiple,
         )
         if signal is None:
             i += 1
@@ -216,9 +218,11 @@ def main():
     parser.add_argument("--timeframe", default="15m")
     parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--equity", type=float, default=10000.0)
+    parser.add_argument("--target-mult", type=float, default=1.0,
+                         help="Multiple of stdev used for target_1/target_2 (spec default 1.0)")
     args = parser.parse_args()
 
-    print(f"=== Backtest: {args.symbol} ({args.timeframe}, {args.days}d) ===")
+    print(f"=== Backtest: {args.symbol} ({args.timeframe}, {args.days}d, target_mult={args.target_mult}) ===")
     print(
         f"Strategy: OTE zone {OTE_LOW * 100:.1f}%-{OTE_HIGH * 100:.1f}% | "
         f"Risk gate: {RISK_PER_TRADE_PCT}%/trade, max {MAX_CONCURRENT_POSITIONS} concurrent, "
@@ -229,7 +233,7 @@ def main():
     candles = fetch_klines(args.symbol, args.timeframe, args.days)
     print(f"Got {len(candles)} candles. Running simulation...\n")
 
-    trades, ending_equity = simulate(args.symbol, candles, args.equity)
+    trades, ending_equity = simulate(args.symbol, candles, args.equity, target_multiple=args.target_mult)
     summarize(trades, args.equity, ending_equity)
 
 
