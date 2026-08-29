@@ -66,7 +66,8 @@ class RiskManager:
     def close_position(self, symbol: str):
         self.state["risk"]["open_positions"].pop(symbol, None)
 
-    def evaluate(self, signal, account_equity: float, now_dt: Optional[datetime] = None) -> TradeDecision:
+    def evaluate(self, signal, account_equity: float, now_dt: Optional[datetime] = None,
+                 available_cash: Optional[float] = None) -> TradeDecision:
         self._roll_day(now_dt)
         risk = self.state["risk"]
 
@@ -95,5 +96,15 @@ class RiskManager:
 
         risk_amount = account_equity * (RISK_PER_TRADE_PCT / 100)
         position_size = risk_amount / per_unit_risk
+
+        # Risk-based sizing can ask for more than the account can actually pay for
+        # (a tight stop on a small account is the common case) — cap by cash on hand.
+        cash = account_equity if available_cash is None else available_cash
+        max_affordable_size = cash / signal.price if signal.price > 0 else 0
+        if position_size > max_affordable_size:
+            position_size = max_affordable_size
+            risk_amount = position_size * per_unit_risk
+            if position_size <= 0:
+                return TradeDecision(False, "not enough cash on hand to afford any position at this entry price")
 
         return TradeDecision(True, "approved", position_size=position_size, risk_amount=risk_amount)
